@@ -1,0 +1,20 @@
+.ipynb_checkpoints
+.vscode
+
+# files
+*.pyc
+*.tar
+*.zip
+*.pkl
+*.hdf5
+
+# datafolder
+data/
+final_dataset/
+trainval_36/
+
+# 3rd party lib
+vizwiz-caption/
+
+# etc
+nohup.out

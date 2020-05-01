@@ -159,8 +159,10 @@ def train(train_loader, decoder, criterion_ce, criterion_dis, decoder_optimizer,
 
         # Remove timesteps that we didn't decode at, or are pads
         # pack_padded_sequence is an easy trick to do this
-        scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
-        targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+        #scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
+        #targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+        scores = pack_padded_sequence(scores, decode_lengths, batch_first=True)[0]
+        targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
 
         # Calculate loss
         loss_d = criterion_dis(scores_d,targets_d.long())
@@ -242,8 +244,10 @@ def validate(val_loader, decoder, criterion_ce, criterion_dis):
             # Remove timesteps that we didn't decode at, or are pads
             # pack_padded_sequence is an easy trick to do this
             scores_copy = scores.clone()
-            scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
-            targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+            #scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
+            #targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+            scores = pack_padded_sequence(scores, decode_lengths, batch_first=True)[0]
+            targets = pack_padded_sequence(targets, decode_lengths, batch_first=True)[0]
 
             # Calculate loss
             loss_d = criterion_dis(scores_d,targets_d.long())
