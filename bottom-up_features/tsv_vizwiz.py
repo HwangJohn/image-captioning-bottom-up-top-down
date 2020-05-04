@@ -11,8 +11,8 @@ from __future__ import print_function
 import os
 import io
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.append(os.path.join(os.getcwd(), 'vqa-maskrcnn-benchmark'))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.append(os.path.join(os.getcwd(), 'vqa-maskrcnn-benchmark'))
 
 import base64
 import csv
@@ -25,13 +25,17 @@ from tqdm import tqdm
 csv.field_size_limit(sys.maxsize)
 
 FIELDNAMES = ['image_id', 'image_w', 'image_h', 'num_boxes', 'boxes', 'features']
-infile = 'trainval_36/trainval_resnet101_faster_rcnn_genome_36.tsv' # model file?!
-train_data_file = 'train36_vizwiz.hdf5' 
-val_data_file = 'val36_vizwiz.hdf5'
-train_indices_file = 'train36_imgid2idx_vizwiz.pkl'
-val_indices_file = 'val36_imgid2idx_vizwiz.pkl'
-train_ids_file = 'train_ids_vizwiz.pkl'
-val_ids_file = 'val_ids_vizwiz.pkl'
+
+OUTPUT_BASEPATH = 'mid_pre_input'
+
+os.makedirs(OUTPUT_BASEPATH, exist_ok=True)
+
+train_data_file = os.path.join(OUTPUT_BASEPATH,'train36_vizwiz.hdf5')
+val_data_file = os.path.join(OUTPUT_BASEPATH, 'val36_vizwiz.hdf5')
+train_indices_file = os.path.join(OUTPUT_BASEPATH, 'train36_imgid2idx_vizwiz.pkl')
+val_indices_file = os.path.join(OUTPUT_BASEPATH, 'val36_imgid2idx_vizwiz.pkl')
+train_ids_file = os.path.join(OUTPUT_BASEPATH, 'train_ids_vizwiz.pkl')
+val_ids_file = os.path.join(OUTPUT_BASEPATH, 'val_ids_vizwiz.pkl')
 
 feature_length = 2048
 num_fixed_boxes = 36
@@ -69,6 +73,8 @@ from maskrcnn_benchmark.utils.model_serialization import load_state_dict
 
 train_paths = glob("../mypythia/data/vizwiz/train/*")
 train_paths = sorted(train_paths, key=lambda x: int(os.path.split(x)[-1].split("_")[-1].split(".")[0]))
+train_paths = train_paths[:30]
+
 os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 tsv_info_list = []
 BASE_PATH = '../mypythia'
@@ -108,7 +114,7 @@ def _build_detection_model():
 
     load_state_dict(model, checkpoint.pop("model"))
 
-    #     model.to("cuda")
+    model.to("cuda")
     model.eval()
     return model
 
@@ -155,7 +161,7 @@ def get_tsv_info(path):
     im, im_scale = _image_transform(path)
     img_tensor, im_scales = [im], [im_scale]
     current_img_list = to_image_list(img_tensor, size_divisible=32)
-    #     current_img_list = current_img_list.to('cuda')
+    current_img_list = current_img_list.to('cuda')
     output = model(current_img_list)
     
     gc.collect()
@@ -171,99 +177,97 @@ def get_tsv_info(path):
     #     return [image_id, image_width, image_height, 100, base64.encodestring(np.array(bbox.tolist()).tobytes()), base64.encodestring(np.array(feat_list[0].tolist()).tobytes())]
 
 
-if __name__ == '__main__':
-    train_paths = glob("../mypythia/data/vizwiz/train/*.jpg")
+model = _build_detection_model()
 
-    model = _build_detection_model()
+h_train = h5py.File(train_data_file, "w")
+h_val = h5py.File(val_data_file, "w")
 
-    h_train = h5py.File(train_data_file, "w")
-    h_val = h5py.File(val_data_file, "w")
+if os.path.exists(train_ids_file) and os.path.exists(val_ids_file):
+    print(f"----------p train_ids_file: {train_ids_file!r}")
+    train_imgids = cPickle.load(open(train_ids_file))
+    val_imgids = cPickle.load(open(val_ids_file))
+else:
+    train_imgids = utils.load_imageid('../mypythia/data/vizwiz/train')
+    val_imgids = utils.load_imageid('../mypythia/data/vizwiz/val')
+    cPickle.dump(train_imgids, open(train_ids_file, 'wb'),protocol=2)
+    cPickle.dump(val_imgids, open(val_ids_file, 'wb'),protocol=2)
 
-    if os.path.exists(train_ids_file) and os.path.exists(val_ids_file):
-        train_imgids = cPickle.load(open(train_ids_file))
-        val_imgids = cPickle.load(open(val_ids_file))
+train_indices = {}
+val_indices = {}
+
+train_img_features = h_train.create_dataset(
+    'image_features', (len(train_imgids), num_fixed_boxes, feature_length), 'f')
+train_img_bb = h_train.create_dataset(
+    'image_bb', (len(train_imgids), num_fixed_boxes, 4), 'f')
+train_spatial_img_features = h_train.create_dataset(
+    'spatial_features', (len(train_imgids), num_fixed_boxes, 6), 'f')
+
+val_img_bb = h_val.create_dataset(
+    'image_bb', (len(val_imgids), num_fixed_boxes, 4), 'f')
+val_img_features = h_val.create_dataset(
+    'image_features', (len(val_imgids), num_fixed_boxes, feature_length), 'f')
+val_spatial_img_features = h_val.create_dataset(
+    'spatial_features', (len(val_imgids), num_fixed_boxes, 6), 'f')
+
+train_counter = 0
+val_counter = 0
+
+for path in tqdm(train_paths):
+    item = get_tsv_info(path)
+    item['num_boxes'] = int(item['num_boxes'])
+    image_id = int(item['image_id'])
+    image_w = float(item['image_w'])
+    image_h = float(item['image_h'])
+    bboxes = item['boxes'].reshape((item['num_boxes'], -1))
+
+    box_width = bboxes[:, 2] - bboxes[:, 0]
+    box_height = bboxes[:, 3] - bboxes[:, 1]
+    scaled_width = box_width / image_w
+    scaled_height = box_height / image_h
+    scaled_x = bboxes[:, 0] / image_w
+    scaled_y = bboxes[:, 1] / image_h
+
+    box_width = box_width[..., np.newaxis]
+    box_height = box_height[..., np.newaxis]
+    scaled_width = scaled_width[..., np.newaxis]
+    scaled_height = scaled_height[..., np.newaxis]
+    scaled_x = scaled_x[..., np.newaxis]
+    scaled_y = scaled_y[..., np.newaxis]
+
+    spatial_features = np.concatenate(
+        (scaled_x,
+            scaled_y,
+            scaled_x + scaled_width,
+            scaled_y + scaled_height,
+            scaled_width,
+            scaled_height),
+        axis=1)
+
+    if image_id in train_imgids:
+        train_imgids.remove(image_id)
+        train_indices[image_id] = train_counter
+        train_img_bb[train_counter, :, :] = bboxes
+        train_img_features[train_counter, :, :] = item['features'].reshape((item['num_boxes'], -1))
+        train_spatial_img_features[train_counter, :, :] = spatial_features
+        train_counter += 1
+    elif image_id in val_imgids:
+        val_imgids.remove(image_id)
+        val_indices[image_id] = val_counter
+        val_img_bb[val_counter, :, :] = bboxes
+        val_img_features[val_counter, :, :] = item['features'].reshape((item['num_boxes'], -1))
+        val_spatial_img_features[val_counter, :, :] = spatial_features
+        val_counter += 1
     else:
-        train_imgids = utils.load_imageid('../mypythia/data/vizwiz/train')
-        val_imgids = utils.load_imageid('../mypythia/data/vizwiz/val')
-        cPickle.dump(train_imgids, open(train_ids_file, 'wb'),protocol=2)
-        cPickle.dump(val_imgids, open(val_ids_file, 'wb'),protocol=2)
+        assert False, 'Unknown image id: %d' % image_id
 
-    train_indices = {}
-    val_indices = {}
+if len(train_imgids) != 0:
+    print('Warning: train_image_ids is not empty')
 
-    train_img_features = h_train.create_dataset(
-        'image_features', (len(train_imgids), num_fixed_boxes, feature_length), 'f')
-    train_img_bb = h_train.create_dataset(
-        'image_bb', (len(train_imgids), num_fixed_boxes, 4), 'f')
-    train_spatial_img_features = h_train.create_dataset(
-        'spatial_features', (len(train_imgids), num_fixed_boxes, 6), 'f')
+if len(val_imgids) != 0:
+    print('Warning: val_image_ids is not empty')
 
-    val_img_bb = h_val.create_dataset(
-        'image_bb', (len(val_imgids), num_fixed_boxes, 4), 'f')
-    val_img_features = h_val.create_dataset(
-        'image_features', (len(val_imgids), num_fixed_boxes, feature_length), 'f')
-    val_spatial_img_features = h_val.create_dataset(
-        'spatial_features', (len(val_imgids), num_fixed_boxes, 6), 'f')
-
-    train_counter = 0
-    val_counter = 0
-
-    for path in tqdm(train_paths[:2]):
-        item = get_tsv_info(path)
-        item['num_boxes'] = int(item['num_boxes'])
-        image_id = int(item['image_id'])
-        image_w = float(item['image_w'])
-        image_h = float(item['image_h'])
-        bboxes = item['boxes'].reshape((item['num_boxes'], -1))
-
-        box_width = bboxes[:, 2] - bboxes[:, 0]
-        box_height = bboxes[:, 3] - bboxes[:, 1]
-        scaled_width = box_width / image_w
-        scaled_height = box_height / image_h
-        scaled_x = bboxes[:, 0] / image_w
-        scaled_y = bboxes[:, 1] / image_h
-
-        box_width = box_width[..., np.newaxis]
-        box_height = box_height[..., np.newaxis]
-        scaled_width = scaled_width[..., np.newaxis]
-        scaled_height = scaled_height[..., np.newaxis]
-        scaled_x = scaled_x[..., np.newaxis]
-        scaled_y = scaled_y[..., np.newaxis]
-
-        spatial_features = np.concatenate(
-            (scaled_x,
-                scaled_y,
-                scaled_x + scaled_width,
-                scaled_y + scaled_height,
-                scaled_width,
-                scaled_height),
-            axis=1)
-
-        if image_id in train_imgids:
-            train_imgids.remove(image_id)
-            train_indices[image_id] = train_counter
-            train_img_bb[train_counter, :, :] = bboxes
-            train_img_features[train_counter, :, :] = item['features'].reshape((item['num_boxes'], -1))
-            train_spatial_img_features[train_counter, :, :] = spatial_features
-            train_counter += 1
-        elif image_id in val_imgids:
-            val_imgids.remove(image_id)
-            val_indices[image_id] = val_counter
-            val_img_bb[val_counter, :, :] = bboxes
-            val_img_features[val_counter, :, :] = item['features'].reshape((item['num_boxes'], -1))
-            val_spatial_img_features[val_counter, :, :] = spatial_features
-            val_counter += 1
-        else:
-            assert False, 'Unknown image id: %d' % image_id
-
-    if len(train_imgids) != 0:
-        print('Warning: train_image_ids is not empty')
-
-    if len(val_imgids) != 0:
-        print('Warning: val_image_ids is not empty')
-
-    cPickle.dump(train_indices, open(train_indices_file, 'wb'))
-    cPickle.dump(val_indices, open(val_indices_file, 'wb'))
-    h_train.close()
-    h_val.close()
-    print("done!")
+cPickle.dump(train_indices, open(train_indices_file, 'wb'))
+cPickle.dump(val_indices, open(val_indices_file, 'wb'))
+h_train.close()
+h_val.close()
+print("done!")

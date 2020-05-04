@@ -224,3 +224,18 @@ def accuracy(scores, targets, k):
     correct = ind.eq(targets.view(-1, 1).expand_as(ind))
     correct_total = correct.view(-1).float().sum()  # 0D tensor
     return correct_total.item() * (100.0 / batch_size)
+
+def load_imageid(folder):
+    images = load_folder(folder, 'jpg')
+    img_ids = set()
+    for img in images:
+        img_id = int(img.split('/')[-1].split('.')[0].split('_')[-1])
+        img_ids.add(img_id)
+    return img_ids
+
+def load_folder(folder, suffix):
+    imgs = []
+    for f in sorted(os.listdir(folder)):
+        if f.endswith(suffix):
+            imgs.append(os.path.join(folder, f))
+    return imgs
