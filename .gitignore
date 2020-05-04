@@ -15,6 +15,7 @@ trainval_36/
 
 # 3rd party lib
 vizwiz-caption/
+vqa-maskrcnn-benchmark/
 
 # etc
 nohup.out
