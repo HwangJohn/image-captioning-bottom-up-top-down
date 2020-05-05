@@ -71,9 +71,14 @@ from maskrcnn_benchmark.modeling.detector import build_detection_model
 from maskrcnn_benchmark.structures.image_list import to_image_list
 from maskrcnn_benchmark.utils.model_serialization import load_state_dict
 
-train_paths = glob("../mypythia/data/vizwiz/train/*")
+input_img_paths = []
+train_paths = glob("../mypythia/data/vizwiz/train/*.jpg")
+val_paths = glob("../mypythia/data/vizwiz/val/*.jpg")
 train_paths = sorted(train_paths, key=lambda x: int(os.path.split(x)[-1].split("_")[-1].split(".")[0]))
-train_paths = train_paths[:30]
+val_paths = sorted(val_paths, key=lambda x: int(os.path.split(x)[-1].split("_")[-1].split(".")[0]))
+
+input_img_paths.extend(train_paths)
+input_img_paths.extend(val_paths)
 
 os.environ['CUDA_VISIBLE_DEVICES'] = '4'
 tsv_info_list = []
@@ -212,7 +217,7 @@ val_spatial_img_features = h_val.create_dataset(
 train_counter = 0
 val_counter = 0
 
-for path in tqdm(train_paths):
+for path in tqdm(input_img_paths):
     item = get_tsv_info(path)
     item['num_boxes'] = int(item['num_boxes'])
     image_id = int(item['image_id'])
